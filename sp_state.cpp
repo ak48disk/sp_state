@@ -9,13 +9,15 @@
 typedef struct state {
 	union {
 		struct {
-			unsigned char swp_up_gcds:7;
+			unsigned char swp_up_gcds:6;
 			unsigned char swp_state : 1;
-			unsigned char vt_up_gcds : 7;
 			unsigned char vt_state : 1;
+			unsigned char vt_up_gcds : 6;
+			unsigned char mf4_state : 2;
 			unsigned char dp_up_gcds : 4;
 			unsigned char mb_cd_gcds : 4;
-			unsigned char shadow_orbs;
+			unsigned char dp_mfi_gcds : 4;
+			unsigned char shadow_orbs: 4;
 		};
 		int s;
 	};
@@ -29,7 +31,7 @@ typedef state(*transistion)(state s);
 
 double damage;
 
-#define mastery_add 0.25
+#define mastery_add 0.5
 
 void deal_damage(double dmg, int mastery)
 {
@@ -42,6 +44,7 @@ state gcd(state s)
 {
 	if (s.dp_up_gcds)s.dp_up_gcds--;
 	if (s.mb_cd_gcds)s.mb_cd_gcds--;
+	if (s.dp_mfi_gcds) s.dp_mfi_gcds--;
 	if (s.swp_up_gcds)
 	{
 		s.swp_up_gcds--; 
@@ -61,7 +64,7 @@ state gcd(state s)
 
 state mind_blast(state s)
 {
-	if (s.mb_cd_gcds) return_state(-1);
+	if (s.mb_cd_gcds || s.mf4_state) return_state(-1);
 	if (s.dp_up_gcds | s.swp_up_gcds | s.vt_up_gcds)
 	{
 		deal_damage(180, 1);
@@ -70,8 +73,8 @@ state mind_blast(state s)
 	{
 		deal_damage(180*1.4, 1);
 	}
-	s = gcd(s);
 	s.mb_cd_gcds = 4;
+	s = gcd(s);
 	s.shadow_orbs = min(5, s.shadow_orbs + 1);
 	
 	return s;
@@ -79,6 +82,7 @@ state mind_blast(state s)
 
 state sw_pain(state s)
 {
+	if(s.mf4_state) return_state(-1);
 	if (s.swp_up_gcds == 0) s.swp_state = 0;
 	s.swp_up_gcds = min(18,s.swp_up_gcds + 12);
 	deal_damage(47.5, 0);
@@ -88,6 +92,7 @@ state sw_pain(state s)
 
 state vt(state s)
 {
+	if (s.mf4_state) return_state(-1);
 	s = gcd(s);
 	if (s.vt_up_gcds == 0) s.vt_state = 0;
 	s.vt_up_gcds = min(15,s.vt_up_gcds + 10);
@@ -96,7 +101,8 @@ state vt(state s)
 
 state mf(state s)
 {
-	int dp = s.dp_up_gcds;
+	if (s.mf4_state) return_state(-1);
+	int dp = s.dp_mfi_gcds;
 	s =gcd(s);
 	if (dp)
 		deal_damage(2 * 30, 1);
@@ -104,8 +110,23 @@ state mf(state s)
 	return s;
 }
 
+state mf4(state s)
+{
+	int dp = s.dp_mfi_gcds || (s.mf4_state == 2);
+	s =gcd(s);
+	if (dp)
+		deal_damage(2 * 30, 1);
+	deal_damage(2 * 30, 1);
+	if (!s.mf4_state)
+		s.mf4_state = dp ? 2 : 1;
+	else
+		s.mf4_state = 0;
+	return s;
+}
+
 state ms(state s)
 {
+	if (s.mf4_state) return_state(-1);
 	s = gcd(s);
 	if (s.dp_up_gcds | s.swp_up_gcds | s.vt_up_gcds) {
 		deal_damage(82.5, 1);
@@ -123,31 +144,13 @@ state ms(state s)
 
 state dp(state s)
 {
+	if (s.mf4_state) return_state(-1);
 	if (s.shadow_orbs < 3) return_state(-1);
 	s.shadow_orbs -= 3;
 	s.dp_up_gcds = 4;
+	s.dp_mfi_gcds += 4;
 	deal_damage(600, 0);
 	return gcd(s);
-}
-
-state* expand_queue(state* queue, int* p_size, int* start,int* end)
-{
-	int size = *p_size;
-	state* q = (state *)malloc(size * 2 * sizeof(state));
-	memset(q, 0, size * 2 * sizeof(state));
-	if (*start <= *end)
-	{
-		memcpy(q, queue, size*sizeof(state));
-	}
-	else
-	{
-		memcpy(q, queue, (*end)*sizeof(state));
-		memcpy(q + size + (*start), queue + (*start), (size - *start)*sizeof(state));
-		*start = *start + size;
-	}
-	free(queue);
-	*p_size = size * 2;
-	return q;
 }
 
 transistion transistions[] =
@@ -157,7 +160,8 @@ transistion transistions[] =
 	vt,
 	mf,
 	dp,
-	ms
+	ms,
+	mf4
 };
 
 char* trans_names[] = {
@@ -166,7 +170,8 @@ char* trans_names[] = {
 	"vt",
 	"mf",
 	"dp",
-	"ms"
+	"ms",
+	"mf4"
 };
 
 typedef struct edge
@@ -177,13 +182,14 @@ typedef struct edge
 	char* trans_name;
 };
 
+std::map<int, std::vector<edge>> edges;
+
 void bfs()
 {
 	int n_transitions = 0;
 	std::hash_set<int> visited;
 	state start; start.s = 0;
 	std::queue<state> q;
-	std::map<int,std::vector<edge>> edges;
 	q.push(start);
 	visited.insert(0);
 	while (!q.empty())
@@ -193,7 +199,7 @@ void bfs()
 		{
 			edges.insert(make_pair(current.s, std::vector<edge>()));
 		}
-		for (int i = 0; i < 6; ++i)
+		for (int i = 0; i < 7; ++i)
 		{
 			damage = 0;
 			state new_state = transistions[i](current);
@@ -221,7 +227,10 @@ void bfs()
 			}
 		}
 	}
+}
 
+void dp()
+{
 	std::map<int, double> v;
 	v.insert(std::make_pair(0, 0));
 	std::map<int, std::vector<char*>> routes;
@@ -244,7 +253,7 @@ void bfs()
 				}
 			}
 		}
-		printf("setp = %d, n_v = %d\n", step, v_next.size());
+		printf("step = %d, n_v = %d\n", step, v_next.size());
 		v = v_next;
 		routes = r_next;
 	}
@@ -252,8 +261,10 @@ void bfs()
 	for (auto vertic : v)
 	{
 		if (vertic.second > max)
+		{
 			max = vertic.second;
-		maxv = vertic.first;
+			maxv = vertic.first;
+		}
 	}
 	auto route = routes[maxv];
 	for (auto step : route)
@@ -261,17 +272,16 @@ void bfs()
 		printf("%s", step);
 		printf("->");
 	}
-
-	printf("\n%d\n", visited.size());
-	printf("%d\n", n_transitions);
 }
 
 int main()
 {
 	state s;
+	static_assert(sizeof(state) == sizeof(int), "sizeof(state)!=4");
 	s.s = 0;
 	s.shadow_orbs = 5;
 	printf("%d\n", s.s);
 	bfs();
+	dp();
 	return 0;
 }
