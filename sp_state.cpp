@@ -9,7 +9,7 @@
 typedef struct state {
 	union {
 		struct {
-			unsigned char swp_up_gcds:6;
+		/*	unsigned char swp_up_gcds:6;
 			unsigned char swp_state : 1;
 			unsigned char vt_state : 1;
 			unsigned char vt_up_gcds : 6;
@@ -17,7 +17,18 @@ typedef struct state {
 			unsigned char dp_up_gcds : 4;
 			unsigned char mb_cd_gcds : 4;
 			unsigned char dp_mfi_gcds : 4;
-			unsigned char shadow_orbs: 4;
+			unsigned char shadow_orbs: 4;*/
+			unsigned char swp_up_gcds : 5; //max 31
+			unsigned char shadow_orbs : 3;
+			unsigned char vt_up_gcds : 5;
+			unsigned char mf4_state : 2;
+			unsigned char swp_state : 1;
+			unsigned char mb_cd_gcds : 3;
+			unsigned char vt_state : 1;
+			unsigned char shadow_word_death_cd : 3;
+			unsigned char shadow_word_death_state : 1;
+			unsigned char dp_up_gcds : 4;
+			unsigned char dp_mfi_gcds : 4;
 		};
 		int s;
 	};
@@ -31,7 +42,7 @@ typedef state(*transistion)(state s);
 
 double damage;
 
-#define mastery_add 0.5
+#define mastery_add 0.25
 
 void deal_damage(double dmg, int mastery)
 {
@@ -45,6 +56,7 @@ state gcd(state s)
 	if (s.dp_up_gcds)s.dp_up_gcds--;
 	if (s.mb_cd_gcds)s.mb_cd_gcds--;
 	if (s.dp_mfi_gcds) s.dp_mfi_gcds--;
+	if (s.shadow_word_death_cd) s.shadow_word_death_cd--;
 	if (s.swp_up_gcds)
 	{
 		s.swp_up_gcds--; 
@@ -65,7 +77,7 @@ state gcd(state s)
 state mind_blast(state s)
 {
 	if (s.mb_cd_gcds || s.mf4_state) return_state(-1);
-	if (s.dp_up_gcds | s.swp_up_gcds | s.vt_up_gcds)
+	if (s.swp_up_gcds || s.vt_up_gcds)
 	{
 		deal_damage(180, 1);
 	}
@@ -128,7 +140,7 @@ state ms(state s)
 {
 	if (s.mf4_state) return_state(-1);
 	s = gcd(s);
-	if (s.dp_up_gcds | s.swp_up_gcds | s.vt_up_gcds) {
+	if (s.swp_up_gcds | s.vt_up_gcds) {
 		deal_damage(82.5, 1);
 	}
 	else
@@ -153,6 +165,24 @@ state dp(state s)
 	return gcd(s);
 }
 
+state death(state s)
+{
+	if (s.mf4_state) return_state(-1);
+	if (s.shadow_word_death_cd) return_state(-1);
+	s.shadow_orbs = min(5, s.shadow_orbs + 1);
+	s.shadow_word_death_state = ~s.shadow_word_death_state;
+	if (s.swp_up_gcds || s.vt_up_gcds) {
+		deal_damage(161.775, 0);
+	}
+	else
+	{
+		deal_damage(161.775 * 1.4, 0);
+	}
+	
+	if (!s.shadow_word_death_state) s.shadow_word_death_cd = 6;
+	return gcd(s);
+}
+
 transistion transistions[] =
 {
 	mind_blast,
@@ -161,7 +191,8 @@ transistion transistions[] =
 	mf,
 	dp,
 	ms,
-	mf4
+	mf4,
+	death
 };
 
 char* trans_names[] = {
@@ -171,7 +202,8 @@ char* trans_names[] = {
 	"mf",
 	"dp",
 	"ms",
-	"mf4"
+	"mf",
+	"death"
 };
 
 typedef struct edge
@@ -222,7 +254,6 @@ void bfs()
 			{
 				if (new_state.s != -1) 
 				{
-					__asm int 3
 				}
 			}
 		}
@@ -235,7 +266,7 @@ void dp()
 	v.insert(std::make_pair(0, 0));
 	std::map<int, std::vector<char*>> routes;
 	routes[0] = std::vector<char*>();
-	for (int step = 0; step < 500; ++step)
+	for (int step = 0; step < 200; ++step)
 	{
 		std::map<int, double> v_next;
 		std::map<int, std::vector<char*>> r_next;
