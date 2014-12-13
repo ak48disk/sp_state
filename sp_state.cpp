@@ -5,19 +5,11 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <assert.h>
 
 typedef struct state {
 	union {
 		struct {
-		/*	unsigned char swp_up_gcds:6;
-			unsigned char swp_state : 1;
-			unsigned char vt_state : 1;
-			unsigned char vt_up_gcds : 6;
-			unsigned char mf4_state : 2;
-			unsigned char dp_up_gcds : 4;
-			unsigned char mb_cd_gcds : 4;
-			unsigned char dp_mfi_gcds : 4;
-			unsigned char shadow_orbs: 4;*/
 			unsigned char swp_up_gcds : 5; //max 31
 			unsigned char shadow_orbs : 3;
 			unsigned char vt_up_gcds : 5;
@@ -29,8 +21,13 @@ typedef struct state {
 			unsigned char shadow_word_death_state : 1;
 			unsigned char dp_up_gcds : 4;
 			unsigned char dp_mfi_gcds : 4;
+			//
+			unsigned char swp_up_gcds_2 : 5;
+			unsigned char swp_state_2 : 1;
+			unsigned char vt_up_gcds_2 : 5;
+			unsigned char vt_state_2 : 1;
 		};
-		int s;
+		long long s;
 	};
 }state;
 
@@ -71,6 +68,21 @@ state gcd(state s)
 		if (s.vt_state == 0)
 			deal_damage(58.5, 0);
 	}
+	//
+	if (s.swp_up_gcds_2)
+	{
+		s.swp_up_gcds_2--;
+		s.swp_state_2 = ~s.swp_state_2;
+		if (s.swp_state_2 == 0)
+			deal_damage(47.5, 0);
+	}
+	if (s.vt_up_gcds_2)
+	{
+		s.vt_up_gcds_2--;
+		s.vt_state_2 = ~s.vt_state_2;
+		if (s.vt_state_2 == 0)
+			deal_damage(58.5, 0);
+	}
 	return s;
 }
 
@@ -108,6 +120,25 @@ state vt(state s)
 	s = gcd(s);
 	if (s.vt_up_gcds == 0) s.vt_state = 0;
 	s.vt_up_gcds = min(15,s.vt_up_gcds + 10);
+	return s;
+}
+
+state sw_pain_2(state s)
+{
+	if (s.mf4_state) return_state(-1);
+	if (s.swp_up_gcds_2 == 0) s.swp_state_2 = 0;
+	s.swp_up_gcds_2 = min(18, s.swp_up_gcds_2 + 12);
+	deal_damage(47.5, 0);
+	s = gcd(s);
+	return s;
+}
+
+state vt_2(state s)
+{
+	if (s.mf4_state) return_state(-1);
+	s = gcd(s);
+	if (s.vt_up_gcds_2 == 0) s.vt_state_2 = 0;
+	s.vt_up_gcds_2 = min(15, s.vt_up_gcds_2 + 10);
 	return s;
 }
 
@@ -192,6 +223,8 @@ transistion transistions[] =
 	dp,
 	ms,
 	mf4,
+	sw_pain_2,
+	vt_2,
 	death
 };
 
@@ -203,6 +236,8 @@ char* trans_names[] = {
 	"dp",
 	"ms",
 	"mf",
+	"sw_pain_2",
+	"vt_2",
 	"death"
 };
 
@@ -212,14 +247,14 @@ typedef struct edge
 	state end;
 	double damage;
 	char* trans_name;
-};
+} edge;
 
-std::map<int, std::vector<edge>> edges;
+std::map<long long, std::vector<edge>> edges;
 
 void bfs()
 {
 	int n_transitions = 0;
-	std::hash_set<int> visited;
+	std::hash_set<long long> visited;
 	state start; start.s = 0;
 	std::queue<state> q;
 	q.push(start);
@@ -231,7 +266,7 @@ void bfs()
 		{
 			edges.insert(make_pair(current.s, std::vector<edge>()));
 		}
-		for (int i = 0; i < 7; ++i)
+		for (int i = 0; i < 9; ++i)
 		{
 			damage = 0;
 			state new_state = transistions[i](current);
@@ -254,6 +289,7 @@ void bfs()
 			{
 				if (new_state.s != -1) 
 				{
+					assert(0);
 				}
 			}
 		}
@@ -262,19 +298,38 @@ void bfs()
 
 void dp()
 {
-	std::map<int, double> v;
+	std::map<long long, double> v;
 	v.insert(std::make_pair(0, 0));
-	std::map<int, std::vector<char*>> routes;
+	std::map<long long, std::vector<char*>> routes;
 	routes[0] = std::vector<char*>();
 	for (int step = 0; step < 200; ++step)
 	{
-		std::map<int, double> v_next;
-		std::map<int, std::vector<char*>> r_next;
+		std::map<long long, double> v_next;
+		std::map<long long, std::vector<char*>> r_next;
 		for (auto vertic : v)
 		{
+			if (edges.find(vertic.first) == edges.end()) {
+				state current;
+				current.s = vertic.first;
+				edges.insert(make_pair(current.s, std::vector<edge>()));
+				for (int i = 0; i < 9; ++i)
+				{
+					damage = 0;
+					state new_state = transistions[i](current);
+					if (new_state.s >= 0)
+					{
+						edge e;
+						e.start = current;
+						e.end = new_state;
+						e.damage = damage;
+						e.trans_name = trans_names[i];
+						edges[current.s].push_back(e);
+					}
+				}
+			}
 			for (auto edge : edges[vertic.first])
 			{
-				int dest = edge.end.s;
+				long long dest = edge.end.s;
 				if (v_next.find(dest) == v_next.end() ||
 					(v_next[dest] < vertic.second + edge.damage))
 				{
@@ -288,7 +343,7 @@ void dp()
 		v = v_next;
 		routes = r_next;
 	}
-	double max = 0; int maxv = 0;
+	double max = 0; long long maxv = 0;
 	for (auto vertic : v)
 	{
 		if (vertic.second > max)
@@ -308,11 +363,11 @@ void dp()
 int main()
 {
 	state s;
-	static_assert(sizeof(state) == sizeof(int), "sizeof(state)!=4");
+	static_assert(sizeof(state) == sizeof(long long), "sizeof(state)!=4");
 	s.s = 0;
 	s.shadow_orbs = 5;
 	printf("%d\n", s.s);
-	bfs();
+	//bfs();
 	dp();
 	return 0;
 }
