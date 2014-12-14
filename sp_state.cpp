@@ -107,6 +107,7 @@ state mind_blast(state s)
 state sw_pain(state s)
 {
 	if(s.mf4_state) return_state(-1);
+	if (s.swp_up_gcds > 2) return_state(-1); //
 	if (s.swp_up_gcds == 0) s.swp_state = 0;
 	s.swp_up_gcds = min(18,s.swp_up_gcds + 12);
 	deal_damage(47.5, 0);
@@ -117,6 +118,7 @@ state sw_pain(state s)
 state vt(state s)
 {
 	if (s.mf4_state) return_state(-1);
+	if (s.vt_up_gcds > 2) return_state(-1); //
 	s = gcd(s);
 	if (s.vt_up_gcds == 0) s.vt_state = 0;
 	s.vt_up_gcds = min(15,s.vt_up_gcds + 10);
@@ -126,6 +128,7 @@ state vt(state s)
 state sw_pain_2(state s)
 {
 	if (s.mf4_state) return_state(-1);
+	if (s.swp_up_gcds_2 > 5) return_state(-1); //
 	if (s.swp_up_gcds_2 == 0) s.swp_state_2 = 0;
 	s.swp_up_gcds_2 = min(18, s.swp_up_gcds_2 + 12);
 	deal_damage(47.5, 0);
@@ -136,6 +139,7 @@ state sw_pain_2(state s)
 state vt_2(state s)
 {
 	if (s.mf4_state) return_state(-1);
+	if (s.vt_up_gcds_2 > 5) return_state(-1); //
 	s = gcd(s);
 	if (s.vt_up_gcds_2 == 0) s.vt_state_2 = 0;
 	s.vt_up_gcds_2 = min(15, s.vt_up_gcds_2 + 10);
@@ -156,6 +160,7 @@ state mf(state s)
 state mf4(state s)
 {
 	int dp = s.dp_mfi_gcds || (s.mf4_state == 2);
+	if (!dp) { if (!s.mf4_state) return_state(-1); }
 	s =gcd(s);
 	if (dp)
 		deal_damage(2 * 30, 1);
@@ -241,101 +246,35 @@ char* trans_names[] = {
 	"death"
 };
 
-typedef struct edge
-{
-	state start;
-	state end;
-	double damage;
-	char* trans_name;
-} edge;
-
-std::map<long long, std::vector<edge>> edges;
-
-void bfs()
-{
-	int n_transitions = 0;
-	std::hash_set<long long> visited;
-	state start; start.s = 0;
-	std::queue<state> q;
-	q.push(start);
-	visited.insert(0);
-	while (!q.empty())
-	{
-		state current = q.front(); q.pop();
-		if (edges.find(current.s) == edges.end())
-		{
-			edges.insert(make_pair(current.s, std::vector<edge>()));
-		}
-		for (int i = 0; i < 9; ++i)
-		{
-			damage = 0;
-			state new_state = transistions[i](current);
-			if (new_state.s >= 0)
-			{
-				edge e;
-				e.start = current;
-				e.end = new_state;
-				e.damage = damage;
-				e.trans_name = trans_names[i];
-				edges[current.s].push_back(e);
-				n_transitions++;
-				if (visited.find(new_state.s) == visited.end())
-				{
-					q.push(new_state);
-					visited.insert(new_state.s);
-				}
-			}
-			else
-			{
-				if (new_state.s != -1) 
-				{
-					assert(0);
-				}
-			}
-		}
-	}
-}
 
 void dp()
 {
 	std::map<long long, double> v;
 	v.insert(std::make_pair(0, 0));
-	std::map<long long, std::vector<char*>> routes;
-	routes[0] = std::vector<char*>();
-	for (int step = 0; step < 200; ++step)
+	std::map<long long, std::vector<char>> routes;
+	routes[0] = std::vector<char>();
+	for (int step = 0; step < 500; ++step)
 	{
 		std::map<long long, double> v_next;
-		std::map<long long, std::vector<char*>> r_next;
+		std::map<long long, std::vector<char>> r_next;
 		for (auto vertic : v)
 		{
-			if (edges.find(vertic.first) == edges.end()) {
-				state current;
-				current.s = vertic.first;
-				edges.insert(make_pair(current.s, std::vector<edge>()));
-				for (int i = 0; i < 9; ++i)
-				{
-					damage = 0;
-					state new_state = transistions[i](current);
-					if (new_state.s >= 0)
-					{
-						edge e;
-						e.start = current;
-						e.end = new_state;
-						e.damage = damage;
-						e.trans_name = trans_names[i];
-						edges[current.s].push_back(e);
-					}
-				}
-			}
-			for (auto edge : edges[vertic.first])
+			state current;
+			current.s = vertic.first;
+			for (int i = 0; i < 7; ++i)
 			{
-				long long dest = edge.end.s;
-				if (v_next.find(dest) == v_next.end() ||
-					(v_next[dest] < vertic.second + edge.damage))
+				damage = 0;
+				state new_state = transistions[i](current);
+				if (new_state.s >= 0)
 				{
-					v_next[dest] = vertic.second + edge.damage;
-					r_next[dest] = routes[vertic.first];
-					r_next[dest].push_back(edge.trans_name);
+					long long dest = new_state.s;
+					if (v_next.find(dest) == v_next.end() ||
+						(v_next[dest] < vertic.second + damage))
+					{
+						v_next[dest] = vertic.second + damage;
+						r_next[dest] = routes[vertic.first];
+						r_next[dest].push_back((char)i);
+					}
 				}
 			}
 		}
@@ -355,7 +294,7 @@ void dp()
 	auto route = routes[maxv];
 	for (auto step : route)
 	{
-		printf("%s", step);
+		printf("%s", trans_names[step]);
 		printf("->");
 	}
 }
