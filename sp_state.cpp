@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <memory.h>
-#include <hash_set>
 #include <queue>
 #include <vector>
-#include <map>
+#include <unordered_map>
 #include <set>
 #include <assert.h>
+
+#define T17
 
 typedef struct state {
 	union {
@@ -38,14 +39,20 @@ typedef struct state {
 typedef state(*transistion)(state s);
 
 double damage;
+double damage_total = 0;
+double mastery_total = 0;
+state start;
 
-#define mastery_add 0.25
+#define mastery_add 0.8
 
 void deal_damage(double dmg, int mastery)
 {
 	damage += dmg;
-	if (mastery)
+	if (mastery) {
 		damage += dmg * mastery_add;
+		mastery_total += dmg;
+	}
+	damage_total += dmg;
 }
 
 state gcd(state s)
@@ -89,14 +96,7 @@ state gcd(state s)
 state mind_blast(state s)
 {
 	if (s.mb_cd_gcds || s.mf4_state) return_state(-1);
-	if (s.swp_up_gcds || s.vt_up_gcds)
-	{
-		deal_damage(180, 1);
-	}
-	else
-	{
-		deal_damage(180*1.4, 1);
-	}
+	deal_damage(200, 1);
 	s.mb_cd_gcds = 4;
 	s = gcd(s);
 	s.shadow_orbs = min(5, s.shadow_orbs + 1);
@@ -107,7 +107,7 @@ state mind_blast(state s)
 state sw_pain(state s)
 {
 	if(s.mf4_state) return_state(-1);
-	if (s.swp_up_gcds > 2) return_state(-1); //
+	//if (s.swp_up_gcds > 2) return_state(-1); //
 	if (s.swp_up_gcds == 0) s.swp_state = 0;
 	s.swp_up_gcds = min(18,s.swp_up_gcds + 12);
 	deal_damage(47.5, 0);
@@ -118,7 +118,7 @@ state sw_pain(state s)
 state vt(state s)
 {
 	if (s.mf4_state) return_state(-1);
-	if (s.vt_up_gcds > 2) return_state(-1); //
+	//if (s.vt_up_gcds > 2) return_state(-1); //
 	s = gcd(s);
 	if (s.vt_up_gcds == 0) s.vt_state = 0;
 	s.vt_up_gcds = min(15,s.vt_up_gcds + 10);
@@ -152,19 +152,19 @@ state mf(state s)
 	int dp = s.dp_mfi_gcds;
 	s =gcd(s);
 	if (dp)
-		deal_damage(2 * 30, 1);
-	deal_damage(2 * 30, 1);
+		deal_damage(2 * 33, 1);
+	deal_damage(2 * 33, 1);
 	return s;
 }
 
 state mf4(state s)
 {
 	int dp = s.dp_mfi_gcds || (s.mf4_state == 2);
-	if (!dp) { if (!s.mf4_state) return_state(-1); }
+	//if (!dp) { if (!s.mf4_state) return_state(-1); }
 	s =gcd(s);
 	if (dp)
-		deal_damage(2 * 30, 1);
-	deal_damage(2 * 30, 1);
+		deal_damage(2 * 33, 1);
+	deal_damage(2 * 33, 1);
 	if (!s.mf4_state)
 		s.mf4_state = dp ? 2 : 1;
 	else
@@ -175,17 +175,20 @@ state mf4(state s)
 state ms(state s)
 {
 	if (s.mf4_state) return_state(-1);
+	if (s.dp_mfi_gcds) return_state(-1);
 	s = gcd(s);
 	if (s.swp_up_gcds | s.vt_up_gcds) {
-		deal_damage(82.5, 1);
+		deal_damage(90.8, 1);
 	}
 	else
 	{
-		deal_damage(82.5 * 1.4, 1);
+		deal_damage(90.8 * 1.4, 1);
 	}
 	s.dp_up_gcds = 0;
 	s.swp_up_gcds = 0;
 	s.vt_up_gcds = 0;
+	s.swp_state = 0;
+	s.vt_state = 0;
 	return s;
 }
 
@@ -198,6 +201,9 @@ state dp(state s)
 	s.dp_up_gcds = 4;
 	s.dp_mfi_gcds += 4;
 	deal_damage(600, 0);
+#ifdef T17
+	if (s.mb_cd_gcds > 0)s.mb_cd_gcds = s.mb_cd_gcds - 1;
+#endif
 	return gcd(s);
 }
 
@@ -208,11 +214,11 @@ state death(state s)
 	s.shadow_orbs = min(5, s.shadow_orbs + 1);
 	s.shadow_word_death_state = ~s.shadow_word_death_state;
 	if (s.swp_up_gcds || s.vt_up_gcds) {
-		deal_damage(161.775, 0);
+		deal_damage(270, 0);
 	}
 	else
 	{
-		deal_damage(161.775 * 1.4, 0);
+		deal_damage(270 * 1.4, 0);
 	}
 	
 	if (!s.shadow_word_death_state) s.shadow_word_death_cd = 6;
@@ -228,9 +234,10 @@ transistion transistions[] =
 	dp,
 	ms,
 	mf4,
+	
+	death,
 	sw_pain_2,
 	vt_2,
-	death
 };
 
 char* trans_names[] = {
@@ -241,22 +248,23 @@ char* trans_names[] = {
 	"dp",
 	"ms",
 	"mf",
+	
+	"death",
 	"sw_pain_2",
 	"vt_2",
-	"death"
 };
 
 
 void dp()
 {
-	std::map<long long, double> v;
-	v.insert(std::make_pair(0, 0));
-	std::map<long long, std::vector<char>> routes;
-	routes[0] = std::vector<char>();
-	for (int step = 0; step < 500; ++step)
+	std::unordered_map<long long, double> v;
+	v.insert(std::make_pair(start.s, 0));
+	std::unordered_map<long long, std::vector<char>> routes;
+	routes[start.s] = std::vector<char>();
+	for (int step = 0; step < 300; ++step)
 	{
-		std::map<long long, double> v_next;
-		std::map<long long, std::vector<char>> r_next;
+		std::unordered_map<long long, double> v_next;
+		std::unordered_map<long long, std::vector<char>> r_next;
 		for (auto vertic : v)
 		{
 			state current;
@@ -292,21 +300,23 @@ void dp()
 		}
 	}
 	auto route = routes[maxv];
+	damage_total = 0;
+	mastery_total = 0;
+	state s = start;
 	for (auto step : route)
 	{
-		printf("%s", trans_names[step]);
+		printf("%s(%d)", trans_names[step], s.shadow_orbs);
 		printf("->");
+		s = transistions[step](s);
 	}
+	printf("%f+%f*mastery", damage_total, mastery_total);
 }
 
 int main()
 {
-	state s;
 	static_assert(sizeof(state) == sizeof(long long), "sizeof(state)!=4");
-	s.s = 0;
-	s.shadow_orbs = 5;
-	printf("%d\n", s.s);
-	//bfs();
+	start.s = 0;
+	start.shadow_orbs = 5;
 	dp();
 	return 0;
 }
