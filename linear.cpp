@@ -10,33 +10,47 @@
 struct params {
 	float w[num_spells][num_states];
 	float b[num_spells];
+	float w2[num_spells][num_states];
+	float b2[num_spells];
 };
 
 
 int select_spell(const params* p, state s)
 {
 	static int spell_disabled[num_spells] = { 0 };
-	static float spell_vals[num_spells] = { 0 };
+	float max_val = -FLT_MAX; int max = -1;
+
 	disabled(spell_disabled, s);
 	for (int i = 0; i < num_spells; ++i) {
-		spell_vals[i] =
-			p->w[i][0] * s.dp_mfi_gcds +
-			p->w[i][1] * s.dp_up_gcds +
-			p->w[i][2] * s.mb_cd_gcds +
-			p->w[i][3] * s.mf4_state +
-			p->w[i][4] * s.shadow_orbs +
-			p->w[i][5] * s.swp_state +
-			p->w[i][6] * s.swp_up_gcds +
-			p->w[i][7] * s.vt_state +
-			p->w[i][8] * s.vt_up_gcds + p->b[i];
-	}
-	float max_val = -FLT_MAX; int max = -1;
-	for (int i = 0; i < num_spells; ++i) {
-		if (!spell_disabled[i] && spell_vals[i] > max_val) {
-			max_val = spell_vals[i];
-			max = i;
+		if (!spell_disabled[i]){
+			auto val =
+				p->w[i][0] * s.dp_mfi_gcds +
+				p->w[i][1] * s.dp_up_gcds +
+				p->w[i][2] * s.mb_cd_gcds +
+				p->w[i][3] * s.mf4_state +
+				p->w[i][4] * s.shadow_orbs +
+				p->w[i][5] * s.swp_state +
+				p->w[i][6] * s.swp_up_gcds +
+				p->w[i][7] * s.vt_state +
+				p->w[i][8] * s.vt_up_gcds + p->b[i];
+			auto relu =
+				p->w2[i][0] * s.dp_mfi_gcds +
+				p->w2[i][1] * s.dp_up_gcds +
+				p->w2[i][2] * s.mb_cd_gcds +
+				p->w2[i][3] * s.mf4_state +
+				p->w2[i][4] * s.shadow_orbs +
+				p->w2[i][5] * s.swp_state +
+				p->w2[i][6] * s.swp_up_gcds +
+				p->w2[i][7] * s.vt_state +
+				p->w2[i][8] * s.vt_up_gcds + p->b2[i];
+			if (relu > 0) val += relu;
+			if (val > max_val) {
+				max_val = val;
+				max = i;
+			}
 		}
 	}
+
 	return max;
 }
 
@@ -81,9 +95,11 @@ void rand_p(params* p)
 	for (int i = 0; i < num_spells; ++i)
 	{
 		for (int j = 0; j < num_states; ++j) {
-			p->w[i][j] = get_rp(10000);
+			p->w[i][j] = get_rp(10000) - 5000;
+			p->w2[i][j] = get_rp(10000) - 5000;
 		}
-		p->b[i] = get_rp(10000);
+		p->b[i] = get_rp(10000) - 5000;
+		p->b2[i] = get_rp(10000) - 5000;
 	}
 }
 
@@ -107,7 +123,7 @@ float maybe_mutate(float v)
 {
 	int rp = get_rp(10000);
 	if (rp < 7000) return v;
-	if (rp < 9000) return v + (rp - 7000);
+	if (rp < 9000) return v + (rp - 8000);
 	float f = (rp - 9000) / 1000.0;
 	if (f < 0.5) {
 		f = 1 + 4 * (0.5 - f);
@@ -125,8 +141,10 @@ void new_p(params* p, const params* pa, const params* pb)
 	{
 		for (int j = 0; j < num_states; ++j) {
 			p->w[i][j] = maybe_mutate(new_value(pa->w[i][j], pb->w[i][j]));
+			p->w2[i][j] = maybe_mutate(new_value(pa->w2[i][j], pb->w2[i][j]));
 		}
 		p->b[i] = maybe_mutate(new_value(pa->b[i], pb->b[i]));
+		p->b2[i] = maybe_mutate(new_value(pa->b2[i], pb->b2[i]));
 	}
 }
 
@@ -139,7 +157,7 @@ params dna()
 
 	for (int i = 0; i < 100000; ++i) rand_p(&ps[i]);
 
-	for (int it = 0; it < 1000; ++it)
+	for (int it = 0; it < 100; ++it)
 	{
 		for (int i = 0; i < 100000; ++i) {
 			vs[i] = std::make_pair(i, run(&ps[i]));
@@ -189,5 +207,20 @@ int main()
 	params max_p = dna();
 	run(&max_p, true);
 	// 92727.112000
+	printf("\n");
+	for (int i = 0; i < num_spells; ++i)
+	{
+		printf("%s\t\t w=", get_trans_names()[i]);
+		for (int j = 0; j < num_states; ++j) {
+			printf("%f ", max_p.w[i][j]);
+		}
+		printf("b=%f\n", max_p.b[i]);
+		printf("%s\t\t w2=", get_trans_names()[i]);
+		for (int j = 0; j < num_states; ++j) {
+			printf("%f ", max_p.w2[i][j]);
+		}
+		printf("b2=%f\n", max_p.b2[i]);
+	}
+	getchar();
 	return 0;
 }
